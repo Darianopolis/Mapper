@@ -1,5 +1,7 @@
 #include <glad/gl.h>
 
+#include <sol/sol.hpp>
+
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_opengl.h>
 #include <SDL3/SDL_joystick.h>
@@ -27,7 +29,16 @@ float from_snorm(int16_t value)
 
 int main()
 {
+    sol::state lua;
+    {
+        int x = 0;
+        lua.set_function("beep", [&x]{ ++x; });
+        lua.script("beep()");
+        std::println("x = {}", x);
+    }
+
     VirtualDevice vdevice;
+    vdevice.Create();
 
     // Init SDL
 
@@ -46,7 +57,7 @@ int main()
 
     auto context = SDL_GL_CreateContext(window);
     SDL_GL_MakeCurrent(window, context);
-    SDL_GL_SetSwapInterval(1);
+    SDL_GL_SetSwapInterval(0);
 
     // Load OpenGL functions
 
@@ -72,12 +83,17 @@ int main()
     std::unordered_set<SDL_JoystickID> joysticks;
     std::unordered_set<SDL_JoystickID> gamepads;
 
+    uint64_t frame = 0;
+
     SDL_Event event;
     for (;;) {
 
         // Poll Events
 
-        while (SDL_PollEvent(&event)) {
+        bool wait = frame > 0;
+
+        while (wait ? SDL_WaitEvent(&event) : SDL_PollEvent(&event)) {
+            wait = false;
             ImGui_ImplSDL3_ProcessEvent(&event);
             switch (event.type) {
                 case SDL_EVENT_QUIT:
@@ -117,11 +133,11 @@ int main()
 
                 if (vendor != 0x0483 || product != 0x5710) continue;
 
-                auto throttle = from_snorm(SDL_GetJoystickAxis(joystick, 0));
+                auto throttle = std::clamp(from_snorm(SDL_GetJoystickAxis(joystick, 0)), -1.f, 1.f);
                 auto wheel_in = from_snorm(SDL_GetJoystickAxis(joystick, 1));
                 auto brake_handbrake = from_snorm(SDL_GetJoystickAxis(joystick, 3));
                 auto brake = std::clamp(brake_handbrake, 0.f, 1.f);
-                auto handbrake = std::clamp(brake_handbrake, -1.f, 0.f);
+                auto handbrake = std::clamp(-brake_handbrake, 0.f, 1.f);
 
                 wheel_in = std::clamp(wheel_in * 1.1f, -1.f, 1.f);
                 // auto wheel_out = std::copysignf(std::pow(std::abs(wheel_in), 2.5f), wheel_in);
@@ -138,7 +154,7 @@ int main()
                 vdevice.SendButton(0, lean >  0.25f);
                 vdevice.SendButton(1, lean < -0.25f);
                 vdevice.SendButton(2, shoulder > 0.f);
-                vdevice.SendButton(3, handbrake < -0.35f);
+                vdevice.SendButton(3, handbrake > 0.35f);
             }
         }
 
@@ -250,9 +266,8 @@ int main()
                         ImGui_Print("Hat[{}] = {}", i, hat_str);
                     }
                 }
-
-                ImGui::End();
             }
+            ImGui::End();
 
             if (ImGui::Begin("Gamepad Input Viewer")) {
                 for (auto id : gamepads) {
@@ -296,14 +311,16 @@ int main()
                     ImGui_Print("Button.RPaddle2 = {}", SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2));
                     ImGui_Print("Button.LPaddle2 = {}", SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_LEFT_PADDLE2));
                 }
-
-                ImGui::End();
             }
+            ImGui::End();
 
             vdevice.DeviceGUI();
         }
 
-        // ImGui::ShowDemoWindow();
+        if (ImGui::Begin("Stats")) {
+            ImGui_Print("Frame: {}", ++frame);
+        }
+        ImGui::End();
 
         // Render
 

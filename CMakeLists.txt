@@ -56,7 +56,23 @@ target_link_libraries(imgui
     SDL3::SDL3
     )
 
-# ---- Example ----
+# ------------------------------------------------------------------------------
+#       LuaJIT
+# ------------------------------------------------------------------------------
+
+add_library(luajit INTERFACE)
+target_include_directories(luajit INTERFACE ${VENDOR_DIR}/luajit/src)
+target_link_libraries(luajit INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/${VENDOR_DIR}/luajit/src/libluajit.a)
+
+# ------------------------------------------------------------------------------
+#       sol2
+# ------------------------------------------------------------------------------
+
+add_subdirectory(${VENDOR_DIR}/sol2 EXCLUDE_FROM_ALL)
+
+# ------------------------------------------------------------------------------
+#       Mapper
+# ------------------------------------------------------------------------------
 
 add_executable(${PROJECT_NAME})
 SetDefaultCompileOptions(${PROJECT_NAME})
@@ -79,5 +95,7 @@ target_link_libraries(${PROJECT_NAME}
     SDL3::SDL3
     glad
     imgui
+    luajit
+    sol2::sol2
     evdev
     )
