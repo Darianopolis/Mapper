@@ -2,4 +2,3 @@
 .build/
 .idea/
 imgui.ini
-mapping.lua

@@ -10,6 +10,9 @@ function(SetDefaultCompileOptions target)
         -Wno-missing-field-initializers
         -Wno-comment
         )
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        target_compile_options(${target} PUBLIC -ggdb)
+    endif()
 endfunction()
 
 set(VENDOR_DIR .build/3rdparty)
@@ -20,17 +23,6 @@ set(BUILD_SHARED_LIBS OFF)
 # ------------------------------------------------------------------------------
 
 add_subdirectory(${VENDOR_DIR}/SDL EXCLUDE_FROM_ALL)
-
-# ------------------------------------------------------------------------------
-#       glad
-# ------------------------------------------------------------------------------
-
-add_subdirectory(${VENDOR_DIR}/glad/cmake EXCLUDE_FROM_ALL)
-glad_add_library(glad
-    REPRODUCIBLE EXCLUDE_FROM_ALL LOADER
-    API gl:core=4.6
-    EXTENSIONS GL_ARB_bindless_texture GL_EXT_texture_compression_s3tc
-    )
 
 # ------------------------------------------------------------------------------
 #       ImGui
@@ -94,9 +86,9 @@ target_include_directories(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
     SDL3::SDL3
-    glad
     imgui
     luajit
     sol2::sol2
     evdev
+    GL
     )
