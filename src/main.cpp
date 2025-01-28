@@ -16,9 +16,10 @@
 #include <print>
 #include <format>
 #include <chrono>
+#include <filesystem>
 #include <unordered_set>
 
-#include "device.hpp"
+#include "vjoystick.hpp"
 
 #define ImGui_Print(...) ImGui::Text("%s", std::format(__VA_ARGS__).c_str())
 
@@ -27,8 +28,37 @@ float from_snorm(int16_t value)
     return std::clamp(float(value) / 32767.f, -1.f, 1.f);
 }
 
-int main()
+int16_t to_snorm16(float value)
 {
+    return int16_t(std::clamp(value, -1.f, 1.f) * 32767);
+}
+
+int main(int argc, char* argv[]) try
+{
+    bool gui = false;
+    std::filesystem::path script_path;
+
+    if (argc > 1 && std::string_view(argv[1]) == "--gui") {
+        gui = true;
+    }
+
+    for (int i = 1; i < argc; ++i) {
+        auto arg = std::string_view(argv[i]);
+        if (arg == "-G" || arg == "--gui") gui = true;
+        else {
+            script_path = arg;
+
+            if (!std::filesystem::exists(script_path)) {
+                std::println("Error: could not find script file: {}", script_path.c_str());
+                return EXIT_FAILURE;
+            }
+        }
+    }
+
+    std::vector<VirtualJoystick*> vjoysticks;
+    std::unordered_set<SDL_JoystickID> joysticks;
+    std::unordered_set<SDL_JoystickID> gamepads;
+
     sol::state lua;
     {
         int x = 0;
@@ -37,51 +67,117 @@ int main()
         std::println("x = {}", x);
     }
 
-    VirtualDevice vdevice;
-    vdevice.Create();
+    struct LuaVirtualJoystick {
+        VirtualJoystick* vjoy;
+    };
+
+    lua.open_libraries(sol::lib::base, sol::lib::math);
+
+    lua.new_usertype<LuaVirtualJoystick>("VirtualJoystick",
+        "SetAxis",   [](LuaVirtualJoystick& self, uint32_t i, float v) { self.vjoy->SetAxis(i, v); },
+        "SetButton", [](LuaVirtualJoystick& self, uint32_t i, bool v) { self.vjoy->SetButton(i, v); },
+        "Update",    [](LuaVirtualJoystick& self) { self.vjoy->Update(); });
+
+    lua.set_function("CreateVirtualJoystick", [&](const sol::table& table) -> LuaVirtualJoystick {
+        std::println("Creating virtual joystick");
+        auto vjoy = CreateVirtualJoystick({
+            .name = table["name"].get<std::string>(),
+            .version = table["version"].get_or<uint16_t>(0),
+            .vendor_id = table["vendor_id"].get_or<uint16_t>(0),
+            .product_id = table["product_id"].get_or<uint16_t>(0),
+            .num_axes = table["num_axes"].get_or<uint16_t>(0),
+            .num_buttons = table["num_axes"].get_or<uint16_t>(0),
+        });
+        vjoysticks.emplace_back(vjoy);
+        return {vjoy};
+    });
+
+    struct LuaJoystick {
+        SDL_Joystick* joystick;
+    };
+
+    lua.new_usertype<LuaJoystick>("Joystick",
+        "GetAxis",   [](LuaJoystick& self, uint32_t i) { return from_snorm(SDL_GetJoystickAxis(self.joystick, i)); },
+        "GetButton", [](LuaJoystick& self, uint32_t i) { return SDL_GetJoystickButton(self.joystick, i); },
+        "SetAxis",   [](LuaJoystick& self, uint32_t i, float v) { SDL_SetJoystickVirtualAxis(self.joystick, i, to_snorm16(v)); },
+        "SetButton", [](LuaJoystick& self, uint32_t i, bool v) { SDL_SetJoystickVirtualButton(self.joystick, i, v); });
+
+    lua.set_function("FindJoystick", [&](uint16_t vendor_id, uint16_t product_id) -> std::optional<LuaJoystick> {
+        for (auto id : joysticks) {
+            auto joystick = SDL_GetJoystickFromID(id);
+
+            if (!joystick) {
+                if (!(joystick = SDL_OpenJoystick(id))) {
+                    continue;
+                }
+            }
+
+            if (vendor_id != SDL_GetJoystickVendor(joystick)) continue;
+            if (product_id != SDL_GetJoystickProduct(joystick)) continue;
+
+            return LuaJoystick{joystick};
+        }
+
+        return std::nullopt;
+    });
+
+    std::vector<sol::function> callbacks;
+
+    lua.set_function("Register", [&](sol::function f) {
+        callbacks.emplace_back(std::move(f));
+    });
+
+// -----------------------------------------------------------------------------
+
+    if (!script_path.empty()) {
+        lua.script_file(script_path);
+    }
+
+// -----------------------------------------------------------------------------
 
     // Init SDL
 
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
 
-    SDL_Init(SDL_INIT_VIDEO
-        | SDL_INIT_JOYSTICK
-        | SDL_INIT_GAMEPAD
-        );
+    auto sdl_systems = SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD;
+    if (gui) sdl_systems |= SDL_INIT_VIDEO;
+
+    SDL_Init(sdl_systems);
 
     // Create Window
 
-    auto window = SDL_CreateWindow("Mapper", 1280, 960, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+    SDL_Window* window = {};
+    SDL_GLContext context = {};
+    if (gui) {
+        window = SDL_CreateWindow("Mapper", 1280, 960, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 
-    // Init OpenGL
+        // Init OpenGL
 
-    auto context = SDL_GL_CreateContext(window);
-    SDL_GL_MakeCurrent(window, context);
-    SDL_GL_SetSwapInterval(0);
+        context = SDL_GL_CreateContext(window);
+        SDL_GL_MakeCurrent(window, context);
+        SDL_GL_SetSwapInterval(0);
 
-    // Load OpenGL functions
+        // Load OpenGL functions
 
-    auto version = gladLoadGL(SDL_GL_GetProcAddress);
-    if (!version) {
-        std::println("Failed to load GL functions!\n");
-        SDL_Quit();
-        return EXIT_FAILURE;
-    } else {
-        std::println("Loaded GL {}.{}", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
+        auto version = gladLoadGL(SDL_GL_GetProcAddress);
+        if (!version) {
+            std::println("Failed to load GL functions!\n");
+            SDL_Quit();
+            return EXIT_FAILURE;
+        } else {
+            std::println("Loaded GL {}.{}", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
+        }
+
+        // Init ImGui
+
+        ImGui::CreateContext();
+        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+        ImGui_ImplSDL3_InitForOpenGL(window, context);
+        ImGui_ImplOpenGL3_Init("#version 460");
     }
 
-    // Init ImGui
-
-    ImGui::CreateContext();
-    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-
-    ImGui_ImplSDL3_InitForOpenGL(window, context);
-    ImGui_ImplOpenGL3_Init("#version 460");
-
     // Main loop
-
-    std::unordered_set<SDL_JoystickID> joysticks;
-    std::unordered_set<SDL_JoystickID> gamepads;
 
     uint64_t frame = 0;
 
@@ -93,8 +189,10 @@ int main()
         bool wait = frame > 0;
 
         while (wait ? SDL_WaitEvent(&event) : SDL_PollEvent(&event)) {
-            wait = false;
-            ImGui_ImplSDL3_ProcessEvent(&event);
+            if (gui) {
+                wait = false;
+                ImGui_ImplSDL3_ProcessEvent(&event);
+            }
             switch (event.type) {
                 case SDL_EVENT_QUIT:
                     std::println("Quitting");
@@ -119,54 +217,15 @@ int main()
             }
         }
 
-        // Forward Taranis Events on to virtual joystick
-
-        {
-            for (auto id : joysticks) {
-                auto joystick = SDL_GetJoystickFromID(id);
-                if (!joystick && !(joystick = SDL_OpenJoystick(id))) continue;
-
-                auto product = SDL_GetJoystickProduct(joystick);
-                auto vendor = SDL_GetJoystickVendor(joystick);
-
-                // std::println("{:#x}/{:#x}", vendor, product);
-
-                if (vendor != 0x0483 || product != 0x5710) continue;
-
-                auto throttle = std::clamp(from_snorm(SDL_GetJoystickAxis(joystick, 0)), -1.f, 1.f);
-                auto wheel_in = from_snorm(SDL_GetJoystickAxis(joystick, 1));
-                auto brake_handbrake = from_snorm(SDL_GetJoystickAxis(joystick, 3));
-                auto brake = std::clamp(brake_handbrake, 0.f, 1.f);
-                auto handbrake = std::clamp(-brake_handbrake, 0.f, 1.f);
-
-                wheel_in = std::clamp(wheel_in * 1.1f, -1.f, 1.f);
-                // auto wheel_out = std::copysignf(std::pow(std::abs(wheel_in), 2.5f), wheel_in);
-                auto wheel_out = wheel_in;
-
-                vdevice.SendAxis(0, handbrake);
-                vdevice.SendAxis(1, throttle);
-                vdevice.SendAxis(2, wheel_out);
-                vdevice.SendAxis(3, brake);
-
-                auto lean = from_snorm(SDL_GetJoystickAxis(joystick, 2));
-                auto shoulder = from_snorm(SDL_GetJoystickAxis(joystick, 4));
-
-                vdevice.SendButton(0, lean >  0.25f);
-                vdevice.SendButton(1, lean < -0.25f);
-                vdevice.SendButton(2, shoulder > 0.f);
-                vdevice.SendButton(3, handbrake > 0.35f);
-            }
-        }
-
         // Start Frame
 
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplSDL3_NewFrame();
-        ImGui::NewFrame();
+        if (gui) {
+            ImGui_ImplOpenGL3_NewFrame();
+            ImGui_ImplSDL3_NewFrame();
+            ImGui::NewFrame();
 
-        // Dockspace
+            // Dockspace
 
-        {
             ImGuiDockNodeFlags dockspace_flags = 0;
             ImGuiWindowFlags dockspace_window_flags = 0;
 
@@ -195,6 +254,54 @@ int main()
             ImGui::End();
         }
 
+        // Forward Taranis Events on to virtual joystick
+
+        {
+            if (gui) {
+                for (auto* vdevice : vjoysticks) {
+                    if (ImGui::Begin(std::format("Virtual Device: {}", vdevice->name).c_str())) {
+                        if (ImGui::Button("Reset")) {
+                            for (uint32_t i = 0; i < vdevice->num_axes; ++i) {
+                                vdevice->SetAxis(i, 0.f);
+                            }
+                            for (uint32_t i = 0; i < vdevice->num_buttons; ++i) {
+                                vdevice->SetButton(i, false);
+                            }
+                        }
+
+                        for (uint32_t i = 0; i < vdevice->num_axes; ++i) {
+                            float v = vdevice->GetAxis(i);
+                            if (ImGui::SliderFloat(std::format("{}##{}.axis", i, vdevice->name).c_str(), &v, -1.f, 1.f)) {
+                                vdevice->SetAxis(i, v);
+                            }
+                        }
+
+                        for (uint32_t i = 0; i < vdevice->num_buttons; ++i) {
+                            bool pressed = vdevice->GetButton(i);
+                            if (ImGui::Checkbox(std::format("{}##{}.button", i, vdevice->name).c_str(), &pressed)) {
+                                vdevice->SetButton(i, pressed);
+                            }
+                        }
+
+                        vdevice->Update();
+                    }
+
+                    ImGui::End();
+                }
+            }
+
+            for (auto& callback : callbacks) {
+                auto res = callback.call();
+                if (!res.valid()) {
+                    sol::error err = res;
+                    std::println("Error in callback: {}", err.what());
+                    callbacks.clear();
+                }
+            }
+        }
+
+        if (!gui) continue;
+
         // Draw Contents
 
         {
@@ -210,38 +317,26 @@ int main()
                     }
 
                     auto name = SDL_GetJoystickName(joystick);
+                    auto vendor_id = SDL_GetJoystickVendor(joystick);
+                    auto product_id = SDL_GetJoystickProduct(joystick);
+                    auto version = SDL_GetJoystickProductVersion(joystick);
 
-                    auto type = SDL_GetJoystickType(joystick);
-                    const char* type_str;
-                    switch (type) {
-                        case SDL_JOYSTICK_TYPE_UNKNOWN: type_str = "UNKNOWN"; break;
-                        case SDL_JOYSTICK_TYPE_GAMEPAD: type_str = "GAMEPAD"; break;
-                        case SDL_JOYSTICK_TYPE_WHEEL: type_str = "WHEEL"; break;
-                        case SDL_JOYSTICK_TYPE_ARCADE_STICK: type_str = "ARCADE_STICK"; break;
-                        case SDL_JOYSTICK_TYPE_FLIGHT_STICK: type_str = "FLIGHT_STICK"; break;
-                        case SDL_JOYSTICK_TYPE_DANCE_PAD: type_str = "DANCE_PAD"; break;
-                        case SDL_JOYSTICK_TYPE_GUITAR: type_str = "GUITAR"; break;
-                        case SDL_JOYSTICK_TYPE_DRUM_KIT: type_str = "DRUM_KIT"; break;
-                        case SDL_JOYSTICK_TYPE_ARCADE_PAD: type_str = "ARCADE_PAD"; break;
-                        case SDL_JOYSTICK_TYPE_THROTTLE: type_str = "THROTTLE"; break;
-                        default:
-                            ;
-                    }
+                    auto guid = SDL_GetJoystickGUID(joystick);
+                    /* SDL_GUID : (bus_type, 0, vendor_id, 0, product_id, 0, version, 0) */
+                    uint16_t bus_type;
+                    std::memcpy(&bus_type, guid.data, 2);
 
-                    if (!ImGui::CollapsingHeader(std::format("{} ({})", name, type_str).c_str())) continue;
+                    if (!ImGui::CollapsingHeader(std::format("({:#06x}/{:#06x}/{:#06x}/{:#06x}) {}", bus_type, vendor_id, product_id, version, name).c_str())) continue;
 
                     for (int i = 0; i < SDL_GetNumJoystickAxes(joystick); ++i) {
                         auto axis = SDL_GetJoystickAxis(joystick, i);
 
-                        // ImGui_Print("Axis[{}] = {}", i, axis);
                         auto normalized = from_snorm(axis);
                         ImGui::SliderFloat(std::format("##axis.{}.{}", i, id).c_str(), &normalized, -1.f, 1.f, "%.3f", ImGuiSliderFlags_NoInput);
                     }
 
                     for (int i = 0; i < SDL_GetNumJoystickButtons(joystick); ++i) {
                         auto pressed = SDL_GetJoystickButton(joystick, i);
-
-                        // ImGui_Print("Button[{}] = {}", i, pressed);
 
                         if (i > 0) ImGui::SameLine();
                         ImGui::Checkbox(std::format("##button.{}.{}", i, id).c_str(), &pressed);
@@ -313,8 +408,6 @@ int main()
                 }
             }
             ImGui::End();
-
-            vdevice.DeviceGUI();
         }
 
         if (ImGui::Begin("Stats")) {
@@ -333,4 +426,12 @@ int main()
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDL_GL_SwapWindow(window);
     }
+}
+catch (const std::exception& e)
+{
+    std::println("Exception: {}", e.what());
+}
+catch (...)
+{
+    std::println("Uncaught Exception");
 }

@@ -5,7 +5,8 @@ include(FetchContent)
 function(SetDefaultCompileOptions target)
     target_compile_features(${target} PUBLIC cxx_std_26)
     target_compile_options(${target} PUBLIC
-        -Wall -Wextra -Wpedantic -Werror
+        -Wall -Wextra -Wpedantic
+        -Werror
         -Wno-missing-field-initializers
         -Wno-comment
         )
@@ -79,10 +80,10 @@ SetDefaultCompileOptions(${PROJECT_NAME})
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_23)
 target_sources(${PROJECT_NAME}
     PUBLIC
-    src/device.hpp
+    src/vjoystick.hpp
     PRIVATE
     src/main.cpp
-    src/device.cpp
+    src/vjoystick.cpp
     )
 target_include_directories(${PROJECT_NAME}
     PUBLIC
