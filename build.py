@@ -14,6 +14,11 @@ args = parser.parse_args()
 dir_path = os.path.dirname(os.path.realpath(__file__))
 build_root = ".build"
 
+is_windows = os.name == "nt"
+is_linux = not is_windows
+
+print(os.name)
+
 # ------------------------------------------------------------------------------
 
 vendor_dir = f"{build_root}/3rdparty"
@@ -43,8 +48,12 @@ for (name, url, branch, dumb) in deps:
 # ------------------------------------------------------------------------------
 
 luajit_dir = f"{vendor_dir}/luajit"
-if (not os.path.exists(f"{luajit_dir}/src/libluajit.a") or args.update):
-    os.system(f"cd {luajit_dir} && make -j")
+if is_linux:
+    if (not os.path.exists(f"{luajit_dir}/src/libluajit.a") or args.update):
+        os.system(f"cd {luajit_dir} && make -j")
+if is_windows:
+    if (not os.path.exists(f"{luajit_dir}/src/luajit.lib") or args.update):
+        os.system(f"cd {luajit_dir}\\src && msvcbuild static")
 
 # ------------------------------------------------------------------------------
 
@@ -52,12 +61,18 @@ build_type = "Debug"
 cmake_dir = f"{build_root}/{build_type}"
 c_compiler = "clang"
 cxx_compiler = "clang++"
+linker_type = "SYSTEM"
+if is_windows:
+    c_compiler = cxx_compiler = "clang-cl"
+    linker_type = "MSVC"
 
 configure_ok = True
 
 if ((not os.path.exists(cmake_dir)) or args.configure):
     print(f"  Configuring [{build_type}]")
-    configure_ok = 0 == os.system(f"cmake -B {cmake_dir} -G Ninja -DVENDOR_DIR={vendor_dir} -DCMAKE_BUILD_TYPE={build_type} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_C_COMPILER={c_compiler} -DCMAKE_CXX_COMPILER={cxx_compiler}")
+    configure_ok = 0 == os.system((f"cmake -B {cmake_dir} -G Ninja"
+        +f" -DVENDOR_DIR={vendor_dir} -DCMAKE_BUILD_TYPE={build_type} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+        +f" -DCMAKE_C_COMPILER={c_compiler} -DCMAKE_CXX_COMPILER={cxx_compiler} -DCMAKE_LINKER_TYPE={linker_type}"))
 
 if (configure_ok and args.build):
     print(f"  Building [{build_type}]")

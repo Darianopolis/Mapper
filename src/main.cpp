@@ -1,7 +1,12 @@
+#include <mapper.hpp>
+
 #include <sol/sol.hpp>
 
 #include <SDL3/SDL.h>
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wlanguage-extension-token"
 #include <SDL3/SDL_opengl.h>
+#pragma clang diagnostic pop
 
 #include <SDL3/SDL_hints.h>
 
@@ -10,7 +15,6 @@
 #include <backends/imgui_impl_opengl3.h>
 
 #include <cmath>
-#include <print>
 #include <format>
 #include <chrono>
 #include <filesystem>
@@ -27,6 +31,8 @@ float from_snorm(int16_t value)
 
 int main(int argc, char* argv[]) try
 {
+    mapper::Log("started");
+
     bool gui = false;
     std::filesystem::path script_path;
 
@@ -41,14 +47,17 @@ int main(int argc, char* argv[]) try
             script_path = arg;
 
             if (!std::filesystem::exists(script_path)) {
-                std::println("Error: could not find script file: {}", script_path.c_str());
-                return EXIT_FAILURE;
+                mapper::Error("Error: could not find script file: {}", script_path.string());
             }
         }
     }
 
     std::vector<VirtualJoystick*> vjoysticks;
     std::unordered_set<SDL_Joystick*> joysticks;
+
+    std::chrono::steady_clock::time_point last_script_run = {};
+    std::chrono::duration<double, std::nano> average_script_dur;
+    double average_script_util = 0.0;
 
     sol::state lua;
 
@@ -64,6 +73,7 @@ int main(int argc, char* argv[]) try
     lua.set_function("CreateVirtualJoystick", [&](const sol::table& table) -> LuaVirtualJoystick {
         auto vjoy = CreateVirtualJoystick({
             .name = table["name"].get<std::string>(),
+            .device_id = table["device_id"].get_or<uint8_t>(0),
             .version = table["version"].get_or<uint16_t>(0),
             .vendor_id = table["vendor_id"].get_or<uint16_t>(0),
             .product_id = table["product_id"].get_or<uint16_t>(0),
@@ -99,11 +109,15 @@ int main(int argc, char* argv[]) try
         callbacks.emplace_back(std::move(f));
     });
 
+    mapper::Log("Initialized Lua state");
+
 // -----------------------------------------------------------------------------
 
     if (!script_path.empty()) {
-        lua.script_file(script_path);
+        lua.script_file(script_path.string());
     }
+
+    mapper::Log("Loaded Lua script");
 
 // -----------------------------------------------------------------------------
 
@@ -161,14 +175,14 @@ int main(int argc, char* argv[]) try
             }
             switch (event.type) {
                 case SDL_EVENT_QUIT:
-                    std::println("Quitting");
+                    mapper::Log("Quitting");
                     SDL_Quit();
                     return EXIT_SUCCESS;
 
                 case SDL_EVENT_JOYSTICK_ADDED:
                     {
                         auto joystick = SDL_OpenJoystick(event.jdevice.which);
-                        std::println("Joystick added: {}", SDL_GetJoystickName(joystick));
+                        mapper::Log("Joystick added: {}", SDL_GetJoystickName(joystick));
                         joysticks.insert(joystick);
                     }
                     break;
@@ -176,7 +190,7 @@ int main(int argc, char* argv[]) try
                 case SDL_EVENT_JOYSTICK_REMOVED:
                     {
                         auto joystick = SDL_GetJoystickFromID(event.jdevice.which);
-                        std::println("Joystick removed: {}", SDL_GetJoystickName(joystick));
+                        mapper::Log("Joystick removed: {}", SDL_GetJoystickName(joystick));
                         joysticks.erase(joystick);
                     }
                     break;
@@ -222,14 +236,25 @@ int main(int argc, char* argv[]) try
 
         // Process script callbacks
 
-        for (auto& callback : callbacks) {
-            auto res = callback.call();
-            if (!res.valid()) {
-                sol::error err = res;
-                std::println("Error in callback: {}", err.what());
-                callbacks.clear();
-                break;
+        {
+            auto start = std::chrono::high_resolution_clock::now();
+            for (auto& callback : callbacks) {
+                auto res = callback.call();
+                if (!res.valid()) {
+                    sol::error err = res;
+                    mapper::Log("Error in callback: {}", err.what());
+                    callbacks.clear();
+                    break;
+                }
             }
+            auto end = std::chrono::high_resolution_clock::now();
+            average_script_dur = average_script_dur * 0.95 + (end - start) * 0.05;
+
+            auto run = std::chrono::steady_clock::now();
+            auto diff = (run - last_script_run);
+            last_script_run = run;
+            auto util = average_script_dur / diff;
+            average_script_util = average_script_util * 0.95 + util * 0.05;
         }
 
         // Virtual joystick control panels
@@ -290,20 +315,22 @@ int main(int argc, char* argv[]) try
                 uint16_t bus_type;
                 std::memcpy(&bus_type, guid.data, 2);
 
-                if (!ImGui::CollapsingHeader(std::format("({:#06x}/{:#06x}/{:#06x}/{:#06x}) {}", bus_type, vendor_id, product_id, version, name).c_str())) continue;
+                if (!ImGui::CollapsingHeader(std::format("({:#06x}/{:#06x}/{:#06x}/{:#06x}) {}##{}", bus_type, vendor_id, product_id, version, name, (void*)joystick).c_str())) continue;
+
+                ImGui_Print("Path: {}", SDL_GetJoystickPath(joystick));
 
                 for (int i = 0; i < SDL_GetNumJoystickAxes(joystick); ++i) {
-                    auto axis = SDL_GetJoystickAxis(joystick, i);
+                    auto raw = SDL_GetJoystickAxis(joystick, i);
 
-                    auto normalized = from_snorm(axis);
-                    ImGui::SliderFloat(std::format("##axis.{}.{}", i, (void*)joystick).c_str(), &normalized, -1.f, 1.f, "%.3f", ImGuiSliderFlags_NoInput);
+                    auto normalized = from_snorm(raw);
+                    ImGui::SliderFloat(std::format("{}###axis.{}.{}", raw, i, (void*)joystick).c_str(), &normalized, -1.f, 1.f, "%.3f", ImGuiSliderFlags_NoInput);
                 }
 
                 for (int i = 0; i < SDL_GetNumJoystickButtons(joystick); ++i) {
                     auto pressed = SDL_GetJoystickButton(joystick, i);
 
                     if (i > 0) ImGui::SameLine();
-                    ImGui::Checkbox(std::format("##button.{}.{}", i, (void*)joystick).c_str(), &pressed);
+                    ImGui::Checkbox(std::format("###button.{}.{}", i, (void*)joystick).c_str(), &pressed);
                 }
 
                 for (int i = 0; i < SDL_GetNumJoystickHats(joystick); ++i) {
@@ -330,6 +357,7 @@ int main(int argc, char* argv[]) try
 
         if (ImGui::Begin("Stats")) {
             ImGui_Print("Frame: {}", frame);
+            ImGui_Print("Script Time: {} ({:.3f}%)", mapper::DurationToString(average_script_dur), average_script_util * 100.f);
         }
         ImGui::End();
 
@@ -347,9 +375,9 @@ int main(int argc, char* argv[]) try
 }
 catch (const std::exception& e)
 {
-    std::println("Exception: {}", e.what());
+    mapper::Log("Exception: {}", e.what());
 }
 catch (...)
 {
-    std::println("Uncaught Exception");
+    mapper::Log("Uncaught Exception");
 }

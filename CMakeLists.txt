@@ -3,15 +3,28 @@ project(mapper LANGUAGES CXX C)
 include(FetchContent)
 
 function(SetDefaultCompileOptions target)
-    target_compile_features(${target} PUBLIC cxx_std_26)
-    target_compile_options(${target} PUBLIC
-        -Wall -Wextra -Wpedantic
-        -Werror
-        -Wno-missing-field-initializers
-        -Wno-comment
-        )
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        target_compile_options(${target} PUBLIC -ggdb)
+    target_compile_features(${target} PUBLIC cxx_std_23)
+    if(MSVC)
+        # clang-cl
+        target_compile_options(${target} PUBLIC
+            /clang:-Wall /clang:-Wextra /clang:-Wpedantic
+            /clang:-Werror
+            /clang:-Wno-missing-field-initializers
+            /clang:-Wno-comment
+            )
+    else()
+        # clang
+        target_compile_options(${target} PUBLIC
+            -Wall -Wextra -Wpedantic
+            -Werror
+            -Wno-missing-field-initializers
+            -Wno-comment
+            )
+    endif()
+    if (UNIX)
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+            target_compile_options(${target} PUBLIC -ggdb)
+        endif()
     endif()
 endfunction()
 
@@ -55,7 +68,13 @@ target_link_libraries(imgui
 
 add_library(luajit INTERFACE)
 target_include_directories(luajit INTERFACE ${VENDOR_DIR}/luajit/src)
-target_link_libraries(luajit INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/${VENDOR_DIR}/luajit/src/libluajit.a)
+if(UNIX)
+    target_link_libraries(luajit INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/${VENDOR_DIR}/luajit/src/libluajit.a)
+endif()
+if(WIN32)
+    target_link_libraries(luajit INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/${VENDOR_DIR}/luajit/src/luajit.lib)
+    target_link_libraries(luajit INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/${VENDOR_DIR}/luajit/src/lua51.lib)
+endif()
 
 # ------------------------------------------------------------------------------
 #       sol2
@@ -69,19 +88,16 @@ add_subdirectory(${VENDOR_DIR}/sol2 EXCLUDE_FROM_ALL)
 
 add_executable(${PROJECT_NAME})
 SetDefaultCompileOptions(${PROJECT_NAME})
-target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_23)
 target_sources(${PROJECT_NAME}
     PUBLIC
     src/vjoystick.hpp
     PRIVATE
     src/main.cpp
-    src/vjoystick.cpp
     )
 target_include_directories(${PROJECT_NAME}
     PUBLIC
     src
     ${glew_SOURCE_DIR}/include
-    /usr/include/libevdev-1.0
     )
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
@@ -89,6 +105,33 @@ target_link_libraries(${PROJECT_NAME}
     imgui
     luajit
     sol2::sol2
-    evdev
-    GL
     )
+
+if (WIN32)
+    target_sources(${PROJECT_NAME}
+        PUBLIC
+        src/windows/vjoy.hpp
+        PRIVATE
+        src/windows/vjoy.cpp
+        src/windows/vjoystick.cpp
+        )
+    target_link_libraries(${PROJECT_NAME}
+        PRIVATE
+        Opengl32.lib
+        )
+endif()
+
+if (UNIX)
+    target_sources(${PROJECT_NAME}
+        PRIVATE
+        src/linux/vjoystick.cpp
+        )
+    target_include_directories(${PROJECT_NAME}
+        PUBLIC
+        /usr/include/libevdev-1.0
+        )
+    target_link_libraries(${PROJECT_NAME}
+        PUBLIC
+        evdev
+        GL)
+endif()

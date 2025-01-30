@@ -1,4 +1,4 @@
-#include "vjoystick.hpp"
+#include <vjoystick.hpp>
 
 #include <libevdev/libevdev-uinput.h>
 #include <libevdev/libevdev.h>
@@ -60,31 +60,13 @@ constexpr std::array button_codes {
     BTN_9,
 };
 
-template<typename T>
-struct ChannelState
-{
-    T last = T{};
-    T current = {};
-    bool dirty = true;
-
-    bool Update()
-    {
-        if (dirty || current != last) {
-            last = current;
-            dirty = false;
-            return true;
-        }
-        return false;
-    }
-};
-
 struct VirtualJoystick_EvDev : VirtualJoystick
 {
     libevdev* dev = {};
     libevdev_uinput* uidev = {};
 
-    std::vector<ChannelState<float>> axes;
-    std::vector<ChannelState<bool>> buttons;
+    std::array<float, max_axis_count> last_axes;
+    std::array<bool, max_button_count> last_buttons;
 };
 
 VirtualJoystick* CreateVirtualJoystick(const VirtualJoystickDesc& desc)
@@ -97,10 +79,9 @@ VirtualJoystick* CreateVirtualJoystick(const VirtualJoystickDesc& desc)
     libevdev_set_id_product(vjoy->dev, desc.product_id);
     libevdev_set_id_version(vjoy->dev, desc.version);
 
-    vjoy->axes.resize(desc.num_axes);
     if (desc.num_axes) {
         libevdev_enable_event_type(vjoy->dev, EV_ABS);
-        for (auto[i, axis] : vjoy->axes | std::views::enumerate) {
+        for (uint32_t i = 0; i < vjoy->num_axes; ++i) {
             input_absinfo info {
                 .minimum = -axis_max_value,
                 .maximum =  axis_max_value,
@@ -110,10 +91,9 @@ VirtualJoystick* CreateVirtualJoystick(const VirtualJoystickDesc& desc)
         }
     }
 
-    vjoy->buttons.resize(desc.num_buttons);
     if (desc.num_buttons) {
         libevdev_enable_event_type(vjoy->dev, EV_KEY);
-        for (auto[i, button] : vjoy->buttons | std::views::enumerate) {
+        for (uint32_t i = 0; i < vjoy->num_buttons; ++i) {
             libevdev_enable_event_code(vjoy->dev, EV_KEY, button_codes[i], nullptr);
         }
     }
@@ -133,49 +113,29 @@ void VirtualJoystick::Destroy()
     delete self;
 }
 
-float VirtualJoystick::GetAxis(uint32_t index)
-{
-    auto self = static_cast<VirtualJoystick_EvDev*>(this);
-
-    return self->axes[index].current;
-}
-
-void VirtualJoystick::SetAxis(uint32_t index, float value)
-{
-    auto self = static_cast<VirtualJoystick_EvDev*>(this);
-
-    self->axes[index].current = std::clamp(value, -1.f, 1.f);
-}
-
-bool VirtualJoystick::GetButton(uint32_t index)
-{
-    auto self = static_cast<VirtualJoystick_EvDev*>(this);
-
-    return self->buttons[index].current;
-}
-
-void VirtualJoystick::SetButton(uint32_t index, bool state)
-{
-    auto self = static_cast<VirtualJoystick_EvDev*>(this);
-
-    self->buttons[index].current = state;
-}
-
 void VirtualJoystick::Update()
 {
     auto self = static_cast<VirtualJoystick_EvDev*>(this);
 
     bool any_change = false;
 
-    for (auto[i, axis] : self->axes | std::views::enumerate) {
-        if (!axis.Update()) continue;
-        libevdev_uinput_write_event(self->uidev, EV_ABS, axis_codes[i], int16_t(axis.current * axis_max_value));
+    constexpr auto update = [](auto& last, auto cur) -> bool {
+        if (cur != last) {
+            last = cur;
+            return true;
+        }
+        return false;
+    };
+
+    for (uint32_t i = 0; i < self->num_axes; ++i) {
+        if (!update(self->last_axes[i], self->axes[i])) continue;
+        libevdev_uinput_write_event(self->uidev, EV_ABS, axis_codes[i], int16_t(self->axes[i] * axis_max_value));
         any_change = true;
     }
 
-    for (auto[i, button] : self->buttons | std::views::enumerate) {
-        if (!button.Update()) continue;
-        libevdev_uinput_write_event(self->uidev, EV_KEY, button_codes[i], button.current);
+    for (uint32_t i = 0; i < self->num_buttons; ++i) {
+        if (!update(self->last_buttons[i], self->buttons[i])) continue;
+        libevdev_uinput_write_event(self->uidev, EV_KEY, button_codes[i], self->buttons[i]);
         any_change = true;
     }
 
