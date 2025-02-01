@@ -7,6 +7,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-U", "--update", action="store_true", help="Update")
 parser.add_argument("-C", "--configure", action="store_true", help="Force configure")
 parser.add_argument("-B", "--build", action="store_true", help="Build")
+parser.add_argument("-R", "--release", action="store_true", help="Release")
 args = parser.parse_args()
 
 # ------------------------------------------------------------------------------
@@ -57,7 +58,7 @@ if is_windows:
 
 # ------------------------------------------------------------------------------
 
-build_type = "Debug"
+build_type = "Debug" if not args.release else "Release"
 cmake_dir = f"{build_root}/{build_type}"
 c_compiler = "clang"
 cxx_compiler = "clang++"
@@ -68,7 +69,7 @@ if is_windows:
 
 configure_ok = True
 
-if ((not os.path.exists(cmake_dir)) or args.configure):
+if ((not os.path.exists(cmake_dir)) or args.configure or args.update):
     print(f"  Configuring [{build_type}]")
     configure_ok = 0 == os.system((f"cmake -B {cmake_dir} -G Ninja"
         +f" -DVENDOR_DIR={vendor_dir} -DCMAKE_BUILD_TYPE={build_type} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"

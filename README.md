@@ -33,8 +33,9 @@ There is no standard system for managing input mappings in games. As a result, e
 
 ## Future Work
 
-- Keyboard and mouse emulation
-- Gamepad mapping and emulation support
+- Force feedback routing
+- Keyboard and mouse input/emulation support
+- Gamepad mapping input/emulation support
 - Dynamic script reloading and debugging in GUI mode
 - Game detection (detect running applications and load scripts on demand)
 
@@ -57,12 +58,6 @@ $ build.py
 ### Linux
 
 You will also need the development packages for `libevdev` installed on for your distro.
-
-You must also run the following to install a `udev` rule to enable device access for created virtual devices. This will require root privileges.
-
-```
-# rules/update-rules.sh
-```
 
 ### Windows
 

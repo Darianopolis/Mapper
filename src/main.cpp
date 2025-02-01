@@ -3,14 +3,14 @@
 #include <sol/sol.hpp>
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_hints.h>
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wlanguage-extension-token"
 #include <SDL3/SDL_opengl.h>
 #pragma clang diagnostic pop
 
-#include <SDL3/SDL_hints.h>
-
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <backends/imgui_impl_sdl3.h>
 #include <backends/imgui_impl_opengl3.h>
 
@@ -23,6 +23,26 @@
 #include "vjoystick.hpp"
 
 #define ImGui_Print(...) ImGui::Text("%s", std::format(__VA_ARGS__).c_str())
+
+constexpr auto ImGui_ToggleButtonSpacing = 4.f;
+constexpr auto ImGui_TopWindowPaddingAdjustment = -3.f;
+
+bool ImGui_ToggleButton(const char* message, ImVec2 size, bool* pressed, bool user_input)
+{
+    auto color = ImGui::GetStyleColorVec4(*pressed ? ImGuiCol_ButtonActive : ImGuiCol_Button);
+    ImGui::PushStyleColor(ImGuiCol_Button, color);
+    if (!user_input) {
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, color);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, color);
+    }
+    bool interacted = false;
+    if (ImGui::Button(message, size) && user_input) {
+        *pressed = !*pressed;
+        interacted = true;
+    }
+    ImGui::PopStyleColor(user_input ? 1 : 3);
+    return interacted;
+};
 
 float from_snorm(int16_t value)
 {
@@ -60,64 +80,71 @@ int main(int argc, char* argv[]) try
     double average_script_util = 0.0;
 
     sol::state lua;
-
-    struct LuaVirtualJoystick {
-        VirtualJoystick* vjoy;
-    };
-
-    lua.new_usertype<LuaVirtualJoystick>("VirtualJoystick",
-        "SetAxis",   [](LuaVirtualJoystick& self, uint32_t i, float v) { self.vjoy->SetAxis(i, v); },
-        "SetButton", [](LuaVirtualJoystick& self, uint32_t i, bool v) { self.vjoy->SetButton(i, v); },
-        "Update",    [](LuaVirtualJoystick& self) { self.vjoy->Update(); });
-
-    lua.set_function("CreateVirtualJoystick", [&](const sol::table& table) -> LuaVirtualJoystick {
-        auto vjoy = CreateVirtualJoystick({
-            .name = table["name"].get<std::string>(),
-            .device_id = table["device_id"].get_or<uint8_t>(0),
-            .version = table["version"].get_or<uint16_t>(0),
-            .vendor_id = table["vendor_id"].get_or<uint16_t>(0),
-            .product_id = table["product_id"].get_or<uint16_t>(0),
-            .num_axes = table["num_axes"].get_or<uint16_t>(0),
-            .num_buttons = table["num_axes"].get_or<uint16_t>(0),
-        });
-        vjoysticks.emplace_back(vjoy);
-        return {vjoy};
-    });
-
-    struct LuaJoystick {
-        SDL_Joystick* joystick;
-    };
-
-    lua.new_usertype<LuaJoystick>("Joystick",
-        "GetAxis",   [](LuaJoystick& self, uint32_t i) { return from_snorm(SDL_GetJoystickAxis(self.joystick, i)); },
-        "GetButton", [](LuaJoystick& self, uint32_t i) { return SDL_GetJoystickButton(self.joystick, i); });
-
-    lua.set_function("FindJoystick", [&](uint16_t vendor_id, uint16_t product_id) -> std::optional<LuaJoystick> {
-        for (auto joystick : joysticks) {
-            if (vendor_id != SDL_GetJoystickVendor(joystick)) continue;
-            if (product_id != SDL_GetJoystickProduct(joystick)) continue;
-
-            return LuaJoystick{joystick};
-        }
-
-        return std::nullopt;
-    });
-
     std::vector<sol::function> callbacks;
 
-    lua.set_function("Register", [&](sol::function f) {
-        callbacks.emplace_back(std::move(f));
-    });
+    auto LoadScript = [&]{
+        for (auto joystick : vjoysticks) {
+            joystick->Destroy();
+        }
+        vjoysticks.clear();
+        callbacks.clear();
+        lua = {};
 
-    mapper::Log("Initialized Lua state");
+        lua.open_libraries(sol::lib::base, sol::lib::math);
+
+        struct LuaVirtualJoystick {
+            VirtualJoystick* joystick;
+        };
+
+        lua.new_usertype<LuaVirtualJoystick>("VirtualJoystick",
+            "SetAxis",   [](LuaVirtualJoystick& self, uint32_t i, float v) { self.joystick->SetAxis(i, v); },
+            "SetButton", [](LuaVirtualJoystick& self, uint32_t i, bool v) { self.joystick->SetButton(i, v); });
+
+        lua.set_function("CreateVirtualJoystick", [&](const sol::table& table) -> LuaVirtualJoystick {
+            auto vjoy = CreateVirtualJoystick({
+                .name        = table["name"].get<std::string>(),
+                .device_id   = table["device_id"].get_or<uint8_t>(0),
+                .version     = table["version"].get_or<uint16_t>(0),
+                .vendor_id   = table["vendor_id"].get_or<uint16_t>(0),
+                .product_id  = table["product_id"].get_or<uint16_t>(0),
+                .num_axes    = table["num_axes"].get_or<uint16_t>(0),
+                .num_buttons = table["num_buttons"].get_or<uint16_t>(0),
+            });
+            vjoysticks.emplace_back(vjoy);
+            return {vjoy};
+        });
+
+        struct LuaJoystick {
+            SDL_Joystick* joystick;
+        };
+
+        lua.new_usertype<LuaJoystick>("Joystick",
+            "GetAxis",   [](LuaJoystick& self, uint32_t i) { return from_snorm(SDL_GetJoystickAxis(self.joystick, i)); },
+            "GetButton", [](LuaJoystick& self, uint32_t i) { return SDL_GetJoystickButton(self.joystick, i); });
+
+        lua.set_function("FindJoystick", [&](uint16_t vendor_id, uint16_t product_id) -> std::optional<LuaJoystick> {
+            for (auto joystick : joysticks) {
+                if (vendor_id != SDL_GetJoystickVendor(joystick)) continue;
+                if (product_id != SDL_GetJoystickProduct(joystick)) continue;
+
+                return LuaJoystick{joystick};
+            }
+
+            return std::nullopt;
+        });
+
+        lua.set_function("Register", [&](sol::function f) {
+            callbacks.emplace_back(std::move(f));
+        });
 
 // -----------------------------------------------------------------------------
 
-    if (!script_path.empty()) {
         lua.script_file(script_path.string());
-    }
+    };
 
-    mapper::Log("Loaded Lua script");
+    if (!script_path.empty()) {
+        LoadScript();
+    }
 
 // -----------------------------------------------------------------------------
 
@@ -138,7 +165,7 @@ int main(int argc, char* argv[]) try
     SDL_Window* window = {};
     SDL_GLContext context = {};
     if (gui) {
-        window = SDL_CreateWindow("Mapper", 1280, 960, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+        window = SDL_CreateWindow("Mapper", 960, 720, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 
         // Init OpenGL
 
@@ -167,6 +194,8 @@ int main(int argc, char* argv[]) try
 
         bool wait = frame++ > 1;
 
+        bool joystick_event = false;
+
         SDL_Event event;
         while (wait ? SDL_WaitEvent(&event) : SDL_PollEvent(&event)) {
             wait = false;
@@ -184,6 +213,7 @@ int main(int argc, char* argv[]) try
                         auto joystick = SDL_OpenJoystick(event.jdevice.which);
                         mapper::Log("Joystick added: {}", SDL_GetJoystickName(joystick));
                         joysticks.insert(joystick);
+                        joystick_event = true;
                     }
                     break;
 
@@ -192,8 +222,17 @@ int main(int argc, char* argv[]) try
                         auto joystick = SDL_GetJoystickFromID(event.jdevice.which);
                         mapper::Log("Joystick removed: {}", SDL_GetJoystickName(joystick));
                         joysticks.erase(joystick);
+                        joystick_event = true;
                     }
                     break;
+
+                case SDL_EVENT_JOYSTICK_AXIS_MOTION:
+                case SDL_EVENT_JOYSTICK_BALL_MOTION:
+                case SDL_EVENT_JOYSTICK_HAT_MOTION:
+                case SDL_EVENT_JOYSTICK_BUTTON_DOWN:
+                case SDL_EVENT_JOYSTICK_BUTTON_UP:
+                case SDL_EVENT_JOYSTICK_UPDATE_COMPLETE:
+                    joystick_event = true;
             }
         }
 
@@ -223,7 +262,8 @@ int main(int argc, char* argv[]) try
                 | ImGuiWindowFlags_NoResize
                 | ImGuiWindowFlags_NoMove
                 | ImGuiWindowFlags_NoBringToFrontOnFocus
-                | ImGuiWindowFlags_NoNavFocus;
+                | ImGuiWindowFlags_NoNavFocus
+                | ImGuiWindowFlags_MenuBar;
 
             // Register dockspace
             bool show = true;
@@ -231,12 +271,24 @@ int main(int argc, char* argv[]) try
             ImGui::PopStyleVar(3);
             ImGui::DockSpace(ImGui::GetID("DockspaceID"), ImVec2(0.f, 0.f), dockspace_flags);
 
+            ImGui::BeginMenuBar();
+            {
+                if (ImGui::BeginMenu("File")) {
+                    if (ImGui::MenuItem("Reload script")) {
+                        LoadScript();
+                    }
+
+                    ImGui::EndMenu();
+                }
+            }
+            ImGui::EndMenuBar();
+
             ImGui::End();
         }
 
         // Process script callbacks
 
-        {
+        if (joystick_event) {
             auto start = std::chrono::high_resolution_clock::now();
             for (auto& callback : callbacks) {
                 auto res = callback.call();
@@ -260,9 +312,14 @@ int main(int argc, char* argv[]) try
         // Virtual joystick control panels
 
         if (gui) {
-            for (auto* vjoy : vjoysticks) {
-                if (ImGui::Begin(std::format("Virtual Device: {}", vjoy->name).c_str())) {
-                    if (ImGui::Button("Reset")) {
+            if (ImGui::Begin("Virtual Joysticks")) {
+
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ImGui_TopWindowPaddingAdjustment);
+
+                for (auto* vjoy : vjoysticks) {
+                    if (!ImGui::CollapsingHeader(std::format("{}", vjoy->name).c_str())) continue;
+
+                    if (ImGui::Button("Reset", ImVec2(100, 0))) {
                         for (uint32_t i = 0; i < vjoy->num_axes; ++i) {
                             vjoy->SetAxis(i, 0.f);
                         }
@@ -280,14 +337,16 @@ int main(int argc, char* argv[]) try
 
                     for (uint32_t i = 0; i < vjoy->num_buttons; ++i) {
                         bool pressed = vjoy->GetButton(i);
-                        if (ImGui::Checkbox(std::format("{}##{}.button", i, vjoy->name).c_str(), &pressed)) {
+
+                        if (i > 0 && i % 8) ImGui::SameLine(0.f, ImGui_ToggleButtonSpacing);
+                        if (ImGui_ToggleButton(std::format("{}##{}.button", i, vjoy->name).c_str(), {30, 30}, &pressed, true)) {
                             vjoy->SetButton(i, pressed);
                         }
                     }
                 }
-
-                ImGui::End();
             }
+
+            ImGui::End();
         }
 
         // Update virtual joysticks
@@ -304,6 +363,8 @@ int main(int argc, char* argv[]) try
 
         if (ImGui::Begin("Joystick Input Viewer")) {
 
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ImGui_TopWindowPaddingAdjustment);
+
             for (auto joystick : joysticks) {
                 auto name = SDL_GetJoystickName(joystick);
                 auto vendor_id = SDL_GetJoystickVendor(joystick);
@@ -317,20 +378,20 @@ int main(int argc, char* argv[]) try
 
                 if (!ImGui::CollapsingHeader(std::format("({:#06x}/{:#06x}/{:#06x}/{:#06x}) {}##{}", bus_type, vendor_id, product_id, version, name, (void*)joystick).c_str())) continue;
 
-                ImGui_Print("Path: {}", SDL_GetJoystickPath(joystick));
-
+                ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
                 for (int i = 0; i < SDL_GetNumJoystickAxes(joystick); ++i) {
                     auto raw = SDL_GetJoystickAxis(joystick, i);
 
                     auto normalized = from_snorm(raw);
-                    ImGui::SliderFloat(std::format("{}###axis.{}.{}", raw, i, (void*)joystick).c_str(), &normalized, -1.f, 1.f, "%.3f", ImGuiSliderFlags_NoInput);
+                    ImGui::SliderFloat(std::format("{} ({})###axis.{},{}", i, raw, i, (void*)joystick).c_str(), &normalized, -1.f, 1.f, "%.3f", ImGuiSliderFlags_NoInput);
                 }
+                ImGui::PopItemFlag();
 
                 for (int i = 0; i < SDL_GetNumJoystickButtons(joystick); ++i) {
                     auto pressed = SDL_GetJoystickButton(joystick, i);
 
-                    if (i > 0) ImGui::SameLine();
-                    ImGui::Checkbox(std::format("###button.{}.{}", i, (void*)joystick).c_str(), &pressed);
+                    if (i > 0 && i % 8) ImGui::SameLine(0.f, ImGui_ToggleButtonSpacing);
+                    ImGui_ToggleButton(std::format("{}##button.{}", i, (void*)joystick).c_str(), {30, 30}, &pressed, false);
                 }
 
                 for (int i = 0; i < SDL_GetNumJoystickHats(joystick); ++i) {
