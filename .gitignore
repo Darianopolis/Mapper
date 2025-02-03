@@ -3,6 +3,9 @@
 .idea/
 .vscode/
 
+*.kra~
+*.png~
+
 TODO.md
 
 imgui.ini

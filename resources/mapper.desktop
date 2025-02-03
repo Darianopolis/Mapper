@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Mapper
+Path=%{HOME}/.local/share/Mapper
+Exec=env SDL_VIDEO_DRIVER=wayland SDL_APP_ID=Mapper %{HOME}/.local/share/Mapper/mapper --gui %u
+Version=1.0
+Type=Application
+Categories=Gaming;
+Terminal=false
+Icon=%{HOME}/.local/share/Mapper/appicon.png
+Comment=Input Remapping Tool

@@ -120,6 +120,7 @@ if (WIN32)
         PRIVATE
         src/windows/vjoy.cpp
         src/windows/vjoystick.cpp
+        resources/mapper.rc
         )
     target_link_libraries(${PROJECT_NAME}
         PRIVATE
