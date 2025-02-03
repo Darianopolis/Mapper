@@ -1,6 +1,6 @@
 #include "vjoy.hpp"
 
-#include <mapper.hpp>
+#include <common.hpp>
 
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN

@@ -92,8 +92,13 @@ SetDefaultCompileOptions(${PROJECT_NAME})
 target_sources(${PROJECT_NAME}
     PUBLIC
     src/vjoystick.hpp
+    src/mapper.hpp
+    src/common.hpp
     PRIVATE
     src/main.cpp
+    src/gui.cpp
+    src/engine.cpp
+    src/scripts.cpp
     )
 target_include_directories(${PROJECT_NAME}
     PUBLIC

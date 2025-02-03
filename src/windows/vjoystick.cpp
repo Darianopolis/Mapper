@@ -1,6 +1,6 @@
 #include <vjoystick.hpp>
 
-#include <mapper.hpp>
+#include <common.hpp>
 
 #include <vector>
 #include <stdexcept>
