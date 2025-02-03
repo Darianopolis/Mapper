@@ -18,26 +18,26 @@ struct VirtualJoystick_VJoy : VirtualJoystick
 VirtualJoystick* CreateVirtualJoystick(const VirtualJoystickDesc& desc)
 {
     if (!vjoy::Load()) {
-        mapper::Error("[vJoy] Failed to load vJoy functions");
+        Error("[vJoy] Failed to load vJoy functions");
     }
 
     auto joy =  new VirtualJoystick_VJoy{{desc}};
 
     if (!vjoy::api::vJoyEnabled()) {
-        mapper::Error("[vjoy] vJoy not detected!");
+        Error("[vjoy] vJoy not detected!");
     }
 
     if (!vjoy::api::isVJDExists(joy->device_id)) {
-        mapper::Error("[vJoy] No vJoy device with ID {} exists!", joy->device_id);
+        Error("[vJoy] No vJoy device with ID {} exists!", joy->device_id);
     }
 
     if (!vjoy::api::AcquireVJD(joy->device_id)) {
         auto owner_pid = vjoy::api::GetOwnerPid(joy->device_id);
-        mapper::Error("[vJoy] Failed to acquire device with ID {}. Current owner PID = {}", joy->device_id, owner_pid);
+        Error("[vJoy] Failed to acquire device with ID {}. Current owner PID = {}", joy->device_id, owner_pid);
     }
 
     if (auto avail_buttons = vjoy::api::GetVJDButtonNumber(joy->device_id); avail_buttons < desc.num_buttons) {
-        mapper::Error("[vJoy] Device does not have enough buttons. Expected {} got {}", desc.num_buttons, avail_buttons);
+        Error("[vJoy] Device does not have enough buttons. Expected {} got {}", desc.num_buttons, avail_buttons);
     }
 
     return joy;
@@ -102,7 +102,7 @@ void VirtualJoystick::Update()
 
     if (any_changed) {
         if (!vjoy::api::UpdateVJD(p.bDevice, &p)) {
-            mapper::Error("Failed to feed vJoy device: {}", p.bDevice);
+            Error("Failed to feed vJoy device: {}", p.bDevice);
         }
     }
 }

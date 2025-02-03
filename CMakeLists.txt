@@ -3,10 +3,10 @@ project(mapper LANGUAGES CXX C)
 include(FetchContent)
 
 function(SetDefaultCompileOptions target)
-    target_compile_features(${target} PUBLIC cxx_std_23)
     if(MSVC)
         # clang-cl
         target_compile_options(${target} PUBLIC
+            /clang:-std=c++26
             /clang:-Wall /clang:-Wextra /clang:-Wpedantic
             /clang:-Werror
             /clang:-Wno-missing-field-initializers
@@ -14,6 +14,7 @@ function(SetDefaultCompileOptions target)
             )
     else()
         # clang
+        target_compile_features(${target} PUBLIC cxx_std_26)
         target_compile_options(${target} PUBLIC
             -Wall -Wextra -Wpedantic
             -Werror

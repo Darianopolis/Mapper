@@ -2,7 +2,7 @@ abs = math.abs
 min = math.min
 max = math.max
 sqrt = math.sqrt
-atan = math.atan
+atan2 = math.atan2
 
 function clamp(v, l, h)
     if v < l then return l end
@@ -35,15 +35,15 @@ end
 
 function joytowheel(x, y, qmax)
     local r = sqrt(x * x + y * y)
-    local q = atan(x, -y)
+    local q = atan2(x, y)
     return clamp(min(r, 1) * q / qmax, -1, 1)
 end
 
 local output = CreateVirtualJoystick {
     name = "Virtual Wheel",
     device_id = 1,
-    num_axes = 8,
-    num_buttons = 22,
+    num_axes = 4,
+    num_buttons = 4,
 }
 
 local combined_throttle_brake = false
@@ -95,7 +95,7 @@ Register(function()
     local input = FindJoystick(0x18d1, 0x9400) -- Google Stadia Controller
     if not input then return end
 
-    local wheel = joytowheel(input:GetAxis(2), input:GetAxis(3), 2.5)
+    local wheel = joytowheel(input:GetAxis(2), -input:GetAxis(3), 2.5)
     local throttle = max(-input:GetAxis(1), maprange(input:GetAxis(5), -1, 1, 0, 1), 0)
     local brake = max(-input:GetAxis(0), 0)
     local handbrake = input:GetAxis(0) > 0.4

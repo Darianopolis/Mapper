@@ -19,10 +19,10 @@ namespace vjoy
             dll = ::LoadLibraryA("C:\\Program Files\\vJoy\\x64\\vJoyInterface.dll");
 
             if (!dll) {
-                mapper::Log("vJoyInterface.dll could not be located. Ensure you have installed vJoy correctly. The following locations are searched");
-                mapper::Log(" - vJoyInterface.dll");
-                mapper::Log(" - C:\\Program Files\\vJoy\\x64\\vJoyInterface.dll");
-                mapper::Log("Add the 'x64' folder to your path if installing vJoy anywhere other than C:\\Program Files\\vJoy");
+                Log("vJoyInterface.dll could not be located. Ensure you have installed vJoy correctly. The following locations are searched");
+                Log(" - vJoyInterface.dll");
+                Log(" - C:\\Program Files\\vJoy\\x64\\vJoyInterface.dll");
+                Log("Add the 'x64' folder to your path if installing vJoy anywhere other than C:\\Program Files\\vJoy");
 
                 return false;
             }
@@ -32,7 +32,7 @@ namespace vjoy
 
 #define VJOY_FUNCTION(name, ...) \
         name = std::bit_cast<decltype(name)>(::GetProcAddress(dll, #name)); \
-        if (!name) { mapper::Log("[vJoy] Failed to load vjoy::api::" #name); return false; }
+        if (!name) { Log("[vJoy] Failed to load vjoy::api::" #name); return false; }
         VJOY_FUNCTION_LIST
 #undef VJOY_FUNCTION
 
