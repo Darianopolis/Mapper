@@ -14,7 +14,11 @@ function copysign(v, s)
     return s >= 0 and v or -v
 end
 
-function maprange(v, in_low, in_high, out_low, out_high)
+function maprange(v, in_low, in_high, out_low, out_high, clamp)
+    if clamp == true then
+        if v < in_low then return out_low end
+        if v > in_high then return out_high end
+    end
     local p = (v - in_low) / (in_high - in_low)
     return p * (out_high - out_low) + out_low
 end
@@ -55,11 +59,11 @@ Register(function()
     local input = FindJoystick(0x0483, 0x5710) -- FrSky Taranis Joystick
     if not input then return end
 
-    local throttle    = max(deadzone(input:GetAxis(0), 0,    0.041), -0.1)
-    local wheel           = deadzone(input:GetAxis(1), 0,    0.071)
-    local brake_handbrake = deadzone(input:GetAxis(3), 0.05, 0.110)
-    local brake     = max( brake_handbrake, 0)
-    local handbrake = max(-brake_handbrake, 0)
+    local throttle        = max(maprange(input:GetAxis(0), -0.75, 0.929, 0, 1), -0.1)
+    local wheel           = deadzone(input:GetAxis(1),  0,    0.071)
+    local brake_handbrake = deadzone(input:GetAxis(3),  0.05, 0.120)
+    local brake     = max(-brake_handbrake, 0)
+    local handbrake = max( brake_handbrake, 0)
 
     if wheel_gamma then
         wheel = gamma(wheel, 1.5)
