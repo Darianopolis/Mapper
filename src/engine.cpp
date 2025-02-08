@@ -1,16 +1,20 @@
 #include "mapper.hpp"
 
 bool joystick_event;
+Uint32 joystick_update_event;
 
 void Initialize()
 {
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD);
     SDL_SetJoystickEventsEnabled(true);
+
+    joystick_update_event = SDL_RegisterEvents(1);
 }
 
 bool ProcessEvents()
 {
+
     bool wait = frame++ > 1;
 
     joystick_event = false;
@@ -26,6 +30,7 @@ bool ProcessEvents()
 
             case SDL_EVENT_JOYSTICK_ADDED:
                 {
+                    std::scoped_lock _{ engine_mutex };
                     auto joystick = SDL_OpenJoystick(event.jdevice.which);
                     Log("Joystick added: {}", SDL_GetJoystickName(joystick));
                     joysticks.insert(joystick);
@@ -35,6 +40,7 @@ bool ProcessEvents()
 
             case SDL_EVENT_JOYSTICK_REMOVED:
                 {
+                    std::scoped_lock _{ engine_mutex };
                     auto joystick = SDL_GetJoystickFromID(event.jdevice.which);
                     Log("Joystick removed: {}", SDL_GetJoystickName(joystick));
                     joysticks.erase(joystick);
@@ -49,6 +55,10 @@ bool ProcessEvents()
             case SDL_EVENT_JOYSTICK_BUTTON_UP:
             case SDL_EVENT_JOYSTICK_UPDATE_COMPLETE:
                 joystick_event = true;
+            default:
+                if (event.type == joystick_update_event) {
+                    joystick_event = true;
+                }
         }
     }
 
@@ -59,6 +69,8 @@ bool ProcessEvents()
 
 void UpdateJoysticks()
 {
+    std::scoped_lock _{ engine_mutex };
+
     if (joystick_event) {
         auto start = std::chrono::high_resolution_clock::now();
         for (auto& script : scripts) {
@@ -95,4 +107,13 @@ void UpdateJoysticks()
             vjoy->Update();
         }
     }
+
+    PushGUIRedrawEvent();
+}
+
+void PushJoystickUpdateEvent()
+{
+    SDL_Event event;
+    event.type = joystick_update_event;
+    SDL_PushEvent(&event);
 }

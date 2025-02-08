@@ -26,6 +26,7 @@ vendor_dir = f"{build_root}/3rdparty"
 
 deps = [
     ("SDL",    "https://github.com/libsdl-org/SDL.git", "main",    False),
+    ("GLFW",   "https://github.com/glfw/glfw.git",      "master",  False),
     ("imgui",  "https://github.com/ocornut/imgui.git",  "docking", False),
     ("sol2",   "https://github.com/ThePhD/sol2.git",    "develop", False),
     ("luajit", "https://luajit.org/git/luajit.git",     "v2.1",    True ),

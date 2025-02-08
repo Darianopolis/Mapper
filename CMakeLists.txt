@@ -36,7 +36,14 @@ set(BUILD_SHARED_LIBS OFF)
 #       SDL
 # ------------------------------------------------------------------------------
 
+set(SDL_WAYLAND OFF CACHE BOOL "" FORCE)
 add_subdirectory(${VENDOR_DIR}/SDL EXCLUDE_FROM_ALL)
+
+# ------------------------------------------------------------------------------
+#       GLFW
+# ------------------------------------------------------------------------------
+
+add_subdirectory(${VENDOR_DIR}/GLFW EXCLUDE_FROM_ALL)
 
 # ------------------------------------------------------------------------------
 #       ImGui
@@ -52,7 +59,7 @@ target_sources(imgui
     ${VENDOR_DIR}/imgui/imgui_draw.cpp
     ${VENDOR_DIR}/imgui/imgui_widgets.cpp
     ${VENDOR_DIR}/imgui/backends/imgui_impl_opengl3.cpp
-    ${VENDOR_DIR}/imgui/backends/imgui_impl_sdl3.cpp
+    ${VENDOR_DIR}/imgui/backends/imgui_impl_glfw.cpp
     )
 target_include_directories(imgui
     PUBLIC
@@ -60,7 +67,8 @@ target_include_directories(imgui
     )
 target_link_libraries(imgui
     PUBLIC
-    SDL3::SDL3
+    # SDL3::SDL3
+    glfw
     )
 
 # ------------------------------------------------------------------------------
@@ -103,11 +111,11 @@ target_sources(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME}
     PUBLIC
     src
-    ${glew_SOURCE_DIR}/include
     )
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
     SDL3::SDL3
+    glfw
     imgui
     luajit
     sol2::sol2

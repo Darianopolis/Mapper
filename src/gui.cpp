@@ -1,15 +1,25 @@
 #include "mapper.hpp"
 
-#include <SDL3/SDL_hints.h>
+#include <GLFW/glfw3.h>
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wlanguage-extension-token"
 #include <SDL3/SDL_opengl.h>
 #pragma clang diagnostic pop
 
+#if defined(WIN32)
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+#include <dwmapi.h>
+#pragma comment(lib, "Dwmapi.lib")
+#endif
+
 #include <imgui.h>
 #include <imgui_internal.h>
-#include <backends/imgui_impl_sdl3.h>
+#include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
+
+#include <thread>
 
 #define ImGui_Print(...) ImGui::Text("%s", std::format(__VA_ARGS__).c_str())
 
@@ -48,34 +58,100 @@ struct ImGui_IDGuard
     }
 };
 
-SDL_Window* window = {};
-SDL_GLContext context = {};
+GLFWwindow* window;
+std::jthread gui_thread;
+std::atomic<uint64_t> pending_gui_update_id = 1;
+
+void PushGUIRedrawEvent()
+{
+    ++pending_gui_update_id;
+    glfwPostEmptyEvent();
+}
+
+void DrawGUI();
 
 void OpenGUI()
 {
-    SDL_InitSubSystem(SDL_INIT_VIDEO);
-    SDL_EnableScreenSaver();
+    gui_thread = std::jthread([] {
+        glfwInit();
 
-    window = SDL_CreateWindow("Mapper", 960, 720, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+        glfwWindowHintString(GLFW_WAYLAND_APP_ID, "Mapper");
 
-    // Init OpenGL
+        window = glfwCreateWindow(960, 720, "Mapper", nullptr, nullptr);
 
-    context = SDL_GL_CreateContext(window);
-    SDL_GL_MakeCurrent(window, context);
-    SDL_GL_SetSwapInterval(0);
+#if defined(WIN32)
+        {
+            auto hwnd = glfwGetWin32Window(window);
+            BOOL value = true;
+            ::DwmSetWindowAttribute(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &value, sizeof(value));
+        }
+#endif
 
-    // Init ImGui
+        glfwMakeContextCurrent(window);
+        glfwSwapInterval(1);
 
-    ImGui::CreateContext();
-    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        ImGui::CreateContext();
+        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
-    ImGui_ImplSDL3_InitForOpenGL(window, context);
-    ImGui_ImplOpenGL3_Init();
+        ImGui_ImplGlfw_InitForOpenGL(window, false);
+        ImGui_ImplOpenGL3_Init();
 
-    SDL_AddEventWatch([](void *, SDL_Event *event) -> bool {
-        ImGui_ImplSDL3_ProcessEvent(event);
-        return true;
-    }, nullptr);
+        // Only redraw GUI on specific events to filter out Wayland refresh events
+
+        #define MAPPER_REGISTER_GLFW_CALLBACK_PASSTHROUGH_IMGUI(name, ...) glfwSet##name(__VA_ARGS__ __VA_OPT__(,) [](auto... args) { \
+            ++pending_gui_update_id; \
+            ImGui_ImplGlfw_##name(args...); \
+        })
+
+        #define MAPPER_REGISTER_GLFW_CALLBACK_EMPTY(name, ...) glfwSet##name(__VA_ARGS__ __VA_OPT__(,) [](auto...) { \
+            ++pending_gui_update_id; \
+        })
+
+        MAPPER_REGISTER_GLFW_CALLBACK_PASSTHROUGH_IMGUI(WindowFocusCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_PASSTHROUGH_IMGUI(CursorEnterCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_PASSTHROUGH_IMGUI(CursorPosCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_PASSTHROUGH_IMGUI(MouseButtonCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_PASSTHROUGH_IMGUI(ScrollCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_PASSTHROUGH_IMGUI(KeyCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_PASSTHROUGH_IMGUI(CharCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_PASSTHROUGH_IMGUI(MonitorCallback);
+
+        MAPPER_REGISTER_GLFW_CALLBACK_EMPTY(WindowPosCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_EMPTY(WindowSizeCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_EMPTY(WindowCloseCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_EMPTY(WindowRefreshCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_EMPTY(WindowIconifyCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_EMPTY(WindowMaximizeCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_EMPTY(FramebufferSizeCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_EMPTY(WindowContentScaleCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_EMPTY(CharModsCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_EMPTY(DropCallback, window);
+        MAPPER_REGISTER_GLFW_CALLBACK_EMPTY(JoystickCallback);
+
+        uint64_t gui_update_id = 0;
+
+        while (!glfwWindowShouldClose(window)) {
+            auto next_gui_update_id = pending_gui_update_id.load();
+            if (next_gui_update_id > gui_update_id) {
+                gui_update_id = next_gui_update_id;
+                DrawGUI();
+            }
+
+            glfwWaitEvents();
+        }
+
+        glfwTerminate();
+    });
+}
+
+void CloseGUI()
+{
+    ++pending_gui_update_id;
+    glfwSetWindowShouldClose(window, true);
+    glfwPostEmptyEvent();
+    if (gui_thread.joinable()) {
+        gui_thread.join();
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -85,7 +161,7 @@ static
 void BeginFrame(MenuFn&& menu_fn)
 {
     ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplSDL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
     // Dockspace
@@ -128,12 +204,12 @@ void EndFrame()
 {
     ImGui::Render();
     int w, h;
-    SDL_GetWindowSizeInPixels(window, &w, &h);
+    glfwGetFramebufferSize(window, &w, &h);
     glViewport(0, 0, w, h);
     glClearColor(0.2, 0.2, 0.2, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-    SDL_GL_SwapWindow(window);
+    glfwSwapBuffers(window);
 }
 
 static
@@ -147,6 +223,8 @@ void DrawFileMenu()
                 Log("Error selecting file: {}", SDL_GetError());
                 return;
             }
+
+            std::scoped_lock _{ engine_mutex };
 
             for (const char* file; (file = *filelist); ++filelist) {
                 Log("Loading script: {}", file);
@@ -200,6 +278,8 @@ void DrawVirtualJoysticksPanel()
 
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ImGui_TopWindowPaddingAdjustment);
 
+    bool any_change = false;
+
     for (auto* script : scripts) {
         for (auto* vjoy : script->vjoysticks) {
             ImGui_IDGuard _ = vjoy;
@@ -213,12 +293,14 @@ void DrawVirtualJoysticksPanel()
                 for (uint32_t i = 0; i < vjoy->num_buttons; ++i) {
                     vjoy->SetButton(i, false);
                 }
+                any_change = true;
             }
 
             for (uint32_t i = 0; i < vjoy->num_axes; ++i) {
                 float v = vjoy->GetAxis(i);
                 if (ImGui::SliderFloat(std::format("{}##axis", i).c_str(), &v, -1.f, 1.f)) {
                     vjoy->SetAxis(i, v);
+                    any_change = true;
                 }
             }
 
@@ -228,9 +310,14 @@ void DrawVirtualJoysticksPanel()
                 if (i > 0 && i % 8) ImGui::SameLine(0.f, ImGui_ToggleButtonSpacing);
                 if (ImGui_ToggleButton(std::format("{}##button", i).c_str(), {30, 30}, &pressed, true)) {
                     vjoy->SetButton(i, pressed);
+                    any_change = true;
                 }
             }
         }
+    }
+
+    if (any_change) {
+        PushJoystickUpdateEvent();
     }
 }
 
@@ -300,18 +387,23 @@ void DrawStatsPanel()
     Defer _ = [] { ImGui::End(); };
     if (!ImGui::Begin("Stats")) return;
 
-    ImGui_Print("Frame: {}", frame);
+    ImGui_Print("Joystick Updates: {}", frame);
+    ImGui_Print("GUI Frames: {}", gui_frame);
     ImGui_Print("Script Time: {} ({:.3f}%)", DurationToString(average_script_dur), average_script_util * 100.f);
 }
 
 void DrawGUI()
 {
+    ++gui_frame;
     BeginFrame([] {
         DrawFileMenu();
     });
-    DrawLoadedScriptPanel();
-    DrawVirtualJoysticksPanel();
-    DrawJoystickInputViewer();
-    DrawStatsPanel();
+    {
+        std::scoped_lock _{ engine_mutex };
+        DrawLoadedScriptPanel();
+        DrawVirtualJoysticksPanel();
+        DrawJoystickInputViewer();
+        DrawStatsPanel();
+    }
     EndFrame();
 }

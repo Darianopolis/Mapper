@@ -42,15 +42,16 @@ int Main(int argc, char* argv[]) try
 {
     auto args = ParseArgs(argc, argv);
     Initialize();
-    if (args.gui) OpenGUI();
     for (auto& script_path : args.initial_script_paths) {
         LoadScript(script_path);
     }
+    if (args.gui) OpenGUI();
 
     while (ProcessEvents()) {
-        if (args.gui) DrawGUI();
         UpdateJoysticks();
     }
+
+    if (args.gui) CloseGUI();
 
     return EXIT_SUCCESS;
 }

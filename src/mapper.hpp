@@ -12,6 +12,7 @@
 #include <format>
 #include <chrono>
 #include <filesystem>
+#include <mutex>
 
 #include <SDL3/SDL.h>
 
@@ -29,10 +30,12 @@ float FromSNorm(int16_t value)
 
 inline uint64_t frame = 0;
 inline std::unordered_set<SDL_Joystick*> joysticks;
+inline std::mutex engine_mutex;
 
 void Initialize();
 bool ProcessEvents();
 void UpdateJoysticks();
+void PushJoystickUpdateEvent();
 
 // -----------------------------------------------------------------------------
 //          Scripts
@@ -69,5 +72,8 @@ void LoadScript(const std::filesystem::path& script_path);
 //          GUI
 // -----------------------------------------------------------------------------
 
+inline uint64_t gui_frame = 0;
+
 void OpenGUI();
-void DrawGUI();
+void PushGUIRedrawEvent();
+void CloseGUI();
