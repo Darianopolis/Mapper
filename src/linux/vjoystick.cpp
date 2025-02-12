@@ -113,7 +113,7 @@ void VirtualJoystick::Destroy()
     delete self;
 }
 
-void VirtualJoystick::Update()
+bool VirtualJoystick::Update()
 {
     auto self = static_cast<VirtualJoystick_EvDev*>(this);
 
@@ -142,4 +142,6 @@ void VirtualJoystick::Update()
     if (any_change) {
         libevdev_uinput_write_event(self->uidev, EV_SYN, SYN_REPORT, 0);
     }
+
+    return any_change;
 }

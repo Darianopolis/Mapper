@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common.hpp"
+#include "lock.hpp"
 #include "vjoystick.hpp"
 
 #include <algorithm>
@@ -12,7 +13,7 @@
 #include <format>
 #include <chrono>
 #include <filesystem>
-#include <mutex>
+#include <shared_mutex>
 
 #include <SDL3/SDL.h>
 
@@ -30,7 +31,7 @@ float FromSNorm(int16_t value)
 
 inline uint64_t frame = 0;
 inline std::unordered_set<SDL_Joystick*> joysticks;
-inline std::mutex engine_mutex;
+inline std::shared_mutex engine_mutex;
 
 void Initialize();
 bool ProcessEvents();
@@ -63,7 +64,7 @@ inline std::vector<Script*> scripts;
 inline std::vector<Script*> scripts_delete_queue;
 
 void QueueUnloadScript(Script* script);
-void FlushScriptDeleteQueue();
+void FlushScriptDeleteQueue(SharedLockGuard&);
 void ReportScriptError(Script* script, const sol::error& error);
 void LoadScript(Script* script);
 void LoadScript(const std::filesystem::path& script_path);

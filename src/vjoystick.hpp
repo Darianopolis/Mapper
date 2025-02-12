@@ -36,7 +36,7 @@ struct VirtualJoystick : VirtualJoystickDesc
     void   SetAxis(uint32_t index, float value) {    axes[index] = std::clamp(value, -1.f, 1.f); }
     void SetButton(uint32_t index, bool  state) { buttons[index] = state;                        }
 
-    void Update();
+    bool Update();
 };
 
 VirtualJoystick* CreateVirtualJoystick(const VirtualJoystickDesc& desc);

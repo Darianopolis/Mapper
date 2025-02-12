@@ -23,9 +23,11 @@ void QueueUnloadScript(Script* script)
     scripts_delete_queue.emplace_back(script);
 }
 
-void FlushScriptDeleteQueue()
+void FlushScriptDeleteQueue(SharedLockGuard& prior_lock)
 {
     if (scripts_delete_queue.empty()) return;
+
+    SharedLockGuard _{ prior_lock, LockState::Unique };
 
     for (auto* script : scripts_delete_queue) {
         script->Destroy();

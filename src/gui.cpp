@@ -224,7 +224,7 @@ void DrawFileMenu()
                 return;
             }
 
-            std::scoped_lock _{ engine_mutex };
+            SharedLockGuard _{ engine_mutex, LockState::Unique };
 
             for (const char* file; (file = *filelist); ++filelist) {
                 Log("Loading script: {}", file);
@@ -238,7 +238,7 @@ void DrawFileMenu()
 }
 
 static
-void DrawLoadedScriptPanel()
+void DrawLoadedScriptPanel(SharedLockGuard& lock)
 {
     Defer _ = [] { ImGui::End(); };
     if (!ImGui::Begin("Scripts")) return;
@@ -267,7 +267,7 @@ void DrawLoadedScriptPanel()
         }
     }
 
-    FlushScriptDeleteQueue();
+    FlushScriptDeleteQueue(lock);
 }
 
 static
@@ -399,8 +399,8 @@ void DrawGUI()
         DrawFileMenu();
     });
     {
-        std::scoped_lock _{ engine_mutex };
-        DrawLoadedScriptPanel();
+        SharedLockGuard lock{ engine_mutex, LockState::Shared };
+        DrawLoadedScriptPanel(lock);
         DrawVirtualJoysticksPanel();
         DrawJoystickInputViewer();
         DrawStatsPanel();

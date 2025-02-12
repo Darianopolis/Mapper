@@ -52,7 +52,7 @@ void VirtualJoystick::Destroy()
     delete self;
 }
 
-void VirtualJoystick::Update()
+bool VirtualJoystick::Update()
 {
     auto self = static_cast<VirtualJoystick_VJoy*>(this);
 
@@ -105,4 +105,6 @@ void VirtualJoystick::Update()
             Error("Failed to feed vJoy device: {}", p.bDevice);
         }
     }
+
+    return any_changed;
 }

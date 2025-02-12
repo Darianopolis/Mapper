@@ -14,7 +14,6 @@ void Initialize()
 
 bool ProcessEvents()
 {
-
     bool wait = frame++ > 1;
 
     joystick_event = false;
@@ -30,7 +29,7 @@ bool ProcessEvents()
 
             case SDL_EVENT_JOYSTICK_ADDED:
                 {
-                    std::scoped_lock _{ engine_mutex };
+                    SharedLockGuard _{ engine_mutex, LockState::Unique };
                     auto joystick = SDL_OpenJoystick(event.jdevice.which);
                     Log("Joystick added: {}", SDL_GetJoystickName(joystick));
                     joysticks.insert(joystick);
@@ -40,7 +39,7 @@ bool ProcessEvents()
 
             case SDL_EVENT_JOYSTICK_REMOVED:
                 {
-                    std::scoped_lock _{ engine_mutex };
+                    SharedLockGuard _{ engine_mutex, LockState::Unique };
                     auto joystick = SDL_GetJoystickFromID(event.jdevice.which);
                     Log("Joystick removed: {}", SDL_GetJoystickName(joystick));
                     joysticks.erase(joystick);
@@ -69,38 +68,38 @@ bool ProcessEvents()
 
 void UpdateJoysticks()
 {
-    std::scoped_lock _{ engine_mutex };
+    if (!joystick_event) return;
 
-    if (joystick_event) {
-        auto start = std::chrono::high_resolution_clock::now();
-        for (auto& script : scripts) {
-            for (auto& callback : script->callbacks) {
-                bool to_disable = false;
-                std::optional<std::string> error;
-                {
-                    auto res = callback.call();
-                    if (!res.valid()) {
-                        ReportScriptError(script, res);
-                        to_disable = true;
-                    }
-                }
-                if (to_disable) {
-                    script->Disable();
-                    QueueUnloadScript(script);
-                    break;
+    SharedLockGuard lock{ engine_mutex, LockState::Shared };
+
+    auto start = std::chrono::high_resolution_clock::now();
+    for (auto& script : scripts) {
+        for (auto& callback : script->callbacks) {
+            bool to_disable = false;
+            std::optional<std::string> error;
+            {
+                auto res = callback.call();
+                if (!res.valid()) {
+                    ReportScriptError(script, res);
+                    to_disable = true;
                 }
             }
+            if (to_disable) {
+                script->Disable();
+                QueueUnloadScript(script);
+                break;
+            }
         }
-        FlushScriptDeleteQueue();
-        auto end = std::chrono::high_resolution_clock::now();
-        average_script_dur = average_script_dur * 0.95 + (end - start) * 0.05;
-
-        auto run = std::chrono::steady_clock::now();
-        auto diff = (run - last_script_run);
-        last_script_run = run;
-        auto util = average_script_dur / diff;
-        average_script_util = average_script_util * 0.95 + util * 0.05;
     }
+    FlushScriptDeleteQueue(lock);
+    auto end = std::chrono::high_resolution_clock::now();
+    average_script_dur = average_script_dur * 0.95 + (end - start) * 0.05;
+
+    auto run = std::chrono::steady_clock::now();
+    auto diff = (run - last_script_run);
+    last_script_run = run;
+    auto util = average_script_dur / diff;
+    average_script_util = average_script_util * 0.95 + util * 0.05;
 
     for (auto& script : scripts) {
         for (auto* vjoy : script->vjoysticks) {
