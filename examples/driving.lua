@@ -37,12 +37,6 @@ function antideadzone(v, ad)
     return (v * (1 - ad)) + copysign(ad, v)
 end
 
-function joytowheel(x, y, qmax)
-    local r = sqrt(x * x + y * y)
-    local q = atan2(x, y)
-    return clamp(min(r, 1) * q / qmax, -1, 1)
-end
-
 local output = CreateVirtualJoystick {
     name = "Virtual Wheel",
     device_id = 1,
@@ -51,9 +45,9 @@ local output = CreateVirtualJoystick {
 }
 
 local combined_throttle_brake = false
-local digital_handbrake = true
-local wheel_gamma = true
-local wheel_antideadzone = false
+local digital_handbrake = false
+local wheel_gamma = 2
+local wheel_antideadzone = 0
 
 Register(function()
     local input = FindJoystick(0x0483, 0x5710) -- FrSky Taranis Joystick
@@ -65,12 +59,12 @@ Register(function()
     local brake     = max(-brake_handbrake, 0)
     local handbrake = max( brake_handbrake, 0)
 
-    if wheel_gamma then
-        wheel = gamma(wheel, 1.5)
+    if wheel_gamma ~= 1 then
+        wheel = gamma(wheel, wheel_gamma)
     end
 
-    if wheel_antideadzone then
-        wheel = antideadzone(wheel, 0.05)
+    if wheel_antideadzone > 0 then
+        wheel = antideadzone(wheel, wheel_antideadzone)
     end
 
     if combined_throttle_brake then
@@ -84,7 +78,7 @@ Register(function()
     if digital_handbrake then
         output:SetButton(3, handbrake > 0.3)
     else
-        output:SetAxis(3, handbrake)
+        output:SetAxis(3, handbrake * 2)
     end
 
     local lean = input:GetAxis(2)
@@ -95,33 +89,50 @@ Register(function()
     output:SetButton(2, shoulder > 0)
 end)
 
+function joytowheel(x, y, qmax)
+    local r = sqrt(x * x + y * y)
+    local q = atan2(x, y)
+    return clamp(min(r, 1) * q / qmax, -1, 1)
+end
+
+function joytothrottlebreak(x, y, qmax)
+    local r = sqrt(x * x + y * y)
+    local t = (x > 0 and y > 0) and r or 0
+    local b =  x < 0            and r or 0
+    local h = (x > 0 and y < 0) and r or 0
+    return t, b, h
+end
+
 Register(function()
     local input = FindJoystick(0x18d1, 0x9400) -- Google Stadia Controller
     if not input then return end
 
     local wheel = joytowheel(input:GetAxis(2), -input:GetAxis(3), 2.5)
-    local throttle = max(-input:GetAxis(1), maprange(input:GetAxis(5), -1, 1, 0, 1), 0)
-    local brake = max(-input:GetAxis(0), 0)
-    local handbrake = input:GetAxis(0) > 0.4
+    local throttle, brake, handbrake = joytothrottlebreak(input:GetAxis(0), -input:GetAxis(1))
+    if input:GetButton(9) then handbrake = 1 end
 
-    if wheel_gamma then
-        wheel = gamma(wheel, 1.5)
+    if wheel_gamma ~= 1 then
+        wheel = gamma(wheel, wheel_gamma)
     end
 
-    if wheel_antideadzone then
-        wheel = antideadzone(wheel, 0.05)
+    if wheel_antideadzone > 0 then
+        wheel = antideadzone(wheel, wheel_antideadzone)
     end
 
     output:SetAxis(0, wheel)
     output:SetAxis(1, throttle)
     output:SetAxis(2, brake)
-    output:SetButton(3, handbrake)
+    if digital_handbrake then
+        output:SetButton(3, handbrake > 0.3)
+    else
+        output:SetAxis(3, handbrake)
+    end
 
     local a              = input:GetButton(0)
     local y              = input:GetButton(3)
     local right_shoulder = input:GetButton(10)
 
     output:SetButton(0, a)
-    output:SetButton(1, right_shoulder)
-    output:SetButton(2, y)
+    output:SetButton(1, y)
+    output:SetButton(2, right_shoulder)
 end)
