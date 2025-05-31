@@ -9,6 +9,7 @@ function(SetDefaultCompileOptions target)
             /clang:-Wall /clang:-Wextra /clang:-Wpedantic
             /clang:-Werror
             /clang:-Wno-missing-field-initializers
+            /clang:-Wno-unknown-pragmas
             /clang:-Wno-comment
             )
     else()
@@ -18,6 +19,7 @@ function(SetDefaultCompileOptions target)
             -Wall -Wextra -Wpedantic
             -Werror
             -Wno-missing-field-initializers
+            -Wno-unknown-pragmas
             -Wno-comment
             )
     endif()
@@ -28,7 +30,6 @@ function(SetDefaultCompileOptions target)
     endif()
 endfunction()
 
-set(VENDOR_DIR .build/3rdparty)
 set(BUILD_SHARED_LIBS OFF)
 
 # ------------------------------------------------------------------------------

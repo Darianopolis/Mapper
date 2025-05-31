@@ -73,6 +73,10 @@ void LoadScript(Script* script)
         return {vjoy};
     });
 
+    lua.set_function("GetTime", []() -> double {
+        return SDL_GetTicks() / 1000.0;
+    });
+
     struct LuaJoystick {
         SDL_Joystick* joystick;
     };

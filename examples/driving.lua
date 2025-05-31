@@ -48,16 +48,18 @@ local combined_throttle_brake = false
 local digital_handbrake = false
 local wheel_gamma = 2
 local wheel_antideadzone = 0
+-- local wheel_gamma = 1.2
+-- local wheel_antideadzone = 0.01
 
 Register(function()
     local input = FindJoystick(0x0483, 0x5710) -- FrSky Taranis Joystick
     if not input then return end
 
-    local throttle        = max(maprange(input:GetAxis(0), -0.75, 0.929, 0, 1), -0.1)
-    local wheel           = deadzone(input:GetAxis(1),  0,    0.071)
-    local brake_handbrake = deadzone(input:GetAxis(3),  0.05, 0.120)
-    local brake     = max(-brake_handbrake, 0)
-    local handbrake = max( brake_handbrake, 0)
+    local throttle        = max(input:GetAxis(0), -0.1)
+    local wheel           = input:GetAxis(1)
+    local brake_handbrake = deadzone(input:GetAxis(3), 0.05, 0.120)
+    local brake           = max(-brake_handbrake, 0)
+    local handbrake       = max(brake_handbrake, 0)
 
     if wheel_gamma ~= 1 then
         wheel = gamma(wheel, wheel_gamma)
@@ -84,7 +86,7 @@ Register(function()
     local lean = input:GetAxis(2)
     local shoulder = input:GetAxis(4)
 
-    output:SetButton(0, lean >  0.25)
+    output:SetButton(0, lean > 0.25)
     output:SetButton(1, lean < -0.25)
     output:SetButton(2, shoulder > 0)
 end)
@@ -98,7 +100,7 @@ end
 function joytothrottlebreak(x, y, qmax)
     local r = sqrt(x * x + y * y)
     local t = (x > 0 and y > 0) and r or 0
-    local b =  x < 0            and r or 0
+    local b = x < 0 and r or 0
     local h = (x > 0 and y < 0) and r or 0
     return t, b, h
 end
@@ -133,6 +135,6 @@ Register(function()
     local right_shoulder = input:GetButton(10)
 
     output:SetButton(0, a)
-    output:SetButton(1, y)
-    output:SetButton(2, right_shoulder)
+    output:SetButton(1, right_shoulder)
+    output:SetButton(2, y)
 end)

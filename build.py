@@ -13,12 +13,11 @@ args = parser.parse_args()
 # ------------------------------------------------------------------------------
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
-build_root = ".build"
 
 is_windows = os.name == "nt"
 is_linux = not is_windows
 
-print(os.name)
+build_root = f".build/{os.name}"
 
 # ------------------------------------------------------------------------------
 
@@ -42,10 +41,7 @@ for (name, url, branch, dumb) in deps:
             os.system(f"cd \"{path}\" && git submodule update --depth 1 --recursive")
     else:
         print(f"  Cloning [{name}]")
-        if dumb:
-            os.system(f"git clone -b {branch} --recursive {url} \"{path}\"")
-        else:
-            os.system(f"git clone -b {branch} --depth 1 --recursive {url} \"{path}\"")
+        os.system(f"git clone -b {branch} {"" if dumb else "--depth 1"} --recursive {url} \"{path}\"")
 
 # ------------------------------------------------------------------------------
 
@@ -60,9 +56,11 @@ if is_windows:
 # ------------------------------------------------------------------------------
 
 build_type = "Debug" if not args.release else "Release"
-cmake_dir = f"{build_root}/{build_type}"
-c_compiler = "clang"
-cxx_compiler = "clang++"
+cmake_dir = f"{build_root}/{build_type.lower()}"
+# c_compiler = "clang"
+# cxx_compiler = "clang++"
+c_compiler = "gcc"
+cxx_compiler = "g++"
 linker_type = "SYSTEM"
 if is_windows:
     c_compiler = cxx_compiler = "clang-cl"

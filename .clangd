@@ -1,6 +1,6 @@
 CompileFlags:
     Remove: [-fmodules-ts, -fmodule-mapper=*, -fdeps-format=*]
-    CompilationDatabase: .build/Debug
+    CompilationDatabase: .build/posix/debug
 
 Diagnostics:
     Suppress: unused-includes

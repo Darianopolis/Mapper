@@ -54,6 +54,7 @@ bool ProcessEvents()
             case SDL_EVENT_JOYSTICK_BUTTON_UP:
             case SDL_EVENT_JOYSTICK_UPDATE_COMPLETE:
                 joystick_event = true;
+                break;
             default:
                 if (event.type == joystick_update_event) {
                     joystick_event = true;
