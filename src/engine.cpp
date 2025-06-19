@@ -31,7 +31,16 @@ bool ProcessEvents()
                 {
                     SharedLockGuard _{ engine_mutex, LockState::Unique };
                     auto joystick = SDL_OpenJoystick(event.jdevice.which);
-                    Log("Joystick added: {}", SDL_GetJoystickName(joystick));
+                    if (!joystick) {
+                        Log("WARN: Joystick added but could not open");
+                        break;
+                    }
+                    auto name = SDL_GetJoystickName(joystick);
+                    if (!name) {
+                        Log("WARN: Joystick opened but could not get name");
+                        break;
+                    }
+                    Log("Joystick added: {}", name);
                     joysticks.insert(joystick);
                     joystick_event = true;
                 }
@@ -41,6 +50,10 @@ bool ProcessEvents()
                 {
                     SharedLockGuard _{ engine_mutex, LockState::Unique };
                     auto joystick = SDL_GetJoystickFromID(event.jdevice.which);
+                    if (!joystick) {
+                        Log("WARN: Joystick removed but had no valid object");
+                        break;
+                    }
                     Log("Joystick removed: {}", SDL_GetJoystickName(joystick));
                     joysticks.erase(joystick);
                     joystick_event = true;

@@ -4,6 +4,10 @@ max = math.max
 sqrt = math.sqrt
 atan2 = math.atan2
 
+function mag(x, y)
+    return sqrt(x ^ 2 + y ^ 2)
+end
+
 function clamp(v, l, h)
     if v < l then return l end
     if v > h then return h end
@@ -30,6 +34,22 @@ end
 function deadzone(v, inner, outer)
     if abs(v) < inner then return 0 end
     return clamp((v - copysign(inner, v)) / (1 - inner - (outer or 0)), -1, 1)
+end
+
+function deadzone_radial(x, y, inner, outer)
+    local r = mag(x ,y)
+    if r < inner then return 0, 0 end
+
+    local d = deadzone(r, inner, outer)
+
+    -- Bump deadzone output, otherwise value flickers between 1.0 and 0.9999...
+    --   due to floating point precision limitations, which leads to rounding issues
+    d = d + 0.0000001
+
+    -- Divide through by `r` to normalize vector
+    d = d / r
+
+    return d * x, d * y
 end
 
 function antideadzone(v, ad)
@@ -91,16 +111,20 @@ Register(function()
     output:SetButton(2, shoulder > 0)
 end)
 
-function joytowheel(x, y, qmax)
-    local r = sqrt(x * x + y * y)
-    local q = atan2(x, y)
-    return clamp(min(r, 1) * q / qmax, -1, 1)
+function joytowheel(x, y, qmax, r_gamma, q_gamma)
+    local r = gamma(min(mag(x, y), 1), r_gamma)
+    local q = atan2(x, y) / qmax
+    q = clamp(q, -1.0, 1.0)
+    q = gamma(q, q_gamma)
+
+    print("r =", r, "q =", q)
+    return clamp(min(r, 1) * q, -1, 1)
 end
 
 function joytothrottlebreak(x, y, qmax)
-    local r = sqrt(x * x + y * y)
+    local r = mag(x, y)
     local t = (x > 0 and y > 0) and r or 0
-    local b = x < 0 and r or 0
+    local b =  x < 0            and r or 0
     local h = (x > 0 and y < 0) and r or 0
     return t, b, h
 end
@@ -109,13 +133,16 @@ Register(function()
     local input = FindJoystick(0x18d1, 0x9400) -- Google Stadia Controller
     if not input then return end
 
-    local wheel = joytowheel(input:GetAxis(2), -input:GetAxis(3), 2.5)
-    local throttle, brake, handbrake = joytothrottlebreak(input:GetAxis(0), -input:GetAxis(1))
+    local rx, ry = deadzone_radial(input:GetAxis(2), -input:GetAxis(3), 0.13, 0)
+    local wheel = joytowheel(rx, ry, 2.5, 2.25, 1.3)
+    local lx, ly = deadzone_radial(input:GetAxis(0), -input:GetAxis(1), 0.13, 0)
+    local throttle, brake, handbrake = joytothrottlebreak(lx, ly)
     if input:GetButton(9) then handbrake = 1 end
+    brake = max(brake, input:GetAxis(5))
 
-    if wheel_gamma ~= 1 then
-        wheel = gamma(wheel, wheel_gamma)
-    end
+    -- if wheel_gamma ~= 1 then
+    --     wheel = gamma(wheel, wheel_gamma)
+    -- end
 
     if wheel_antideadzone > 0 then
         wheel = antideadzone(wheel, wheel_antideadzone)
